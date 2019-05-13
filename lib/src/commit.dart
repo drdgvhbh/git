@@ -71,7 +71,6 @@ class _CommitParser {
 
     _parseHeaderBlock();
     _consumeMergeTag();
-    // consumeSpaceBetweenHeaderAndMessageBlock();
     _parseMessage();
 
     final endSpot = _slr.position;
@@ -124,10 +123,6 @@ class _CommitParser {
     while (_mergeTagBodyRegExp.hasMatch(nextLine)) {
       nextLine = _slr.readNextLine();
     }
-  }
-
-  void consumeSpaceBetweenHeaderAndMessageBlock() {
-    _slr.readNextLine();
   }
 
   void _parseMessage() {
