@@ -25,7 +25,7 @@ class Commit {
 
   static Commit parse(String content) {
     final stringLineReader = StringLineReader(content);
-    final tuple = _parse(stringLineReader, false);
+    final tuple = _CommitParser().parse(stringLineReader, false);
     assert(tuple.item1 == null);
     return tuple.item2;
   }
@@ -36,14 +36,16 @@ class Commit {
     final commits = <String, Commit>{};
 
     while (slr.position != null && slr.position < content.length) {
-      final tuple = _parse(slr, true);
+      final tuple = _CommitParser().parse(slr, true);
       commits[tuple.item1] = tuple.item2;
     }
 
     return commits;
   }
+}
 
-  static Tuple<String, Commit> _parse(StringLineReader slr, bool isRevParse) {
+class _CommitParser {
+  Tuple<String, Commit> parse(StringLineReader slr, bool isRevParse) {
     assert(slr != null);
     assert(slr.position != null);
 
