@@ -3,6 +3,12 @@ import 'dart:collection';
 import 'bot.dart';
 import 'util.dart';
 
+final _headerRegExp = RegExp(r'^(commit|tree|parent|author|committer) (.+)$');
+final _mergeTagRegExp = RegExp(r'^mergetag .*$');
+final _mergeTagBodyRegExp = RegExp(r'^ [^\s].*$|^ $');
+final _authorHeader =
+    RegExp(r'^(author) (.+?(?= <)) <(.+?(?=>))> ([0-9]+) (-[0-9]{4})$');
+
 class Commit {
   final String treeSha;
   final String author;
@@ -45,68 +51,106 @@ class Commit {
 }
 
 class _CommitParser {
-  final headers = <String, List<String>>{};
-  final StringLineReader slr;
-  final bool isRevParse;
+  String _commitSha;
+  String _treeSha;
+  final _parents = <String>[];
+  String _author;
+  String _committer;
+  String _message;
 
-  _CommitParser(this.slr, this.isRevParse);
+  final StringLineReader _slr;
+  final bool _isRevParse;
+
+  _CommitParser(this._slr, this._isRevParse);
 
   Tuple<String, Commit> parse() {
-    assert(slr != null);
-    assert(slr.position != null);
+    assert(_slr != null);
+    assert(_slr.position != null);
 
-    final startSpot = slr.position;
-    var lastLine = slr.readNextLine();
+    final startSpot = _slr.position;
 
-    while (lastLine.isNotEmpty) {
-      final match = headerRegExp.allMatches(lastLine).single;
-      assert(match.groupCount == 2);
-      final header = match.group(1);
-      final value = match.group(2);
+    _parseHeaderBlock();
+    _consumeMergeTag();
+    // consumeSpaceBetweenHeaderAndMessageBlock();
+    _parseMessage();
 
-      headers.putIfAbsent(header, () => <String>[]).add(value);
+    final endSpot = _slr.position;
 
-      lastLine = slr.readNextLine();
-    }
+    final content = _slr.source.substring(startSpot, endSpot);
 
-    assert(lastLine.isEmpty);
+    return Tuple(_commitSha,
+        Commit._(_treeSha, _author, _committer, _message, content, _parents));
+  }
 
-    String message;
+  void _parseHeaderBlock() {
+    var nextLine = _slr.peekNextLine();
 
-    if (isRevParse) {
-      final msgLines = <String>[];
-      lastLine = slr.readNextLine();
+    while (_headerRegExp.hasMatch(nextLine)) {
+      final match = _headerRegExp.allMatches(nextLine).single;
+      final headerKey = match.group(1);
+      final headerValue = match.group(2);
 
-      const revParseMessagePrefix = '    ';
-      while (lastLine != null && lastLine.startsWith(revParseMessagePrefix)) {
-        msgLines.add(lastLine.substring(revParseMessagePrefix.length));
-        lastLine = slr.readNextLine();
+      switch (headerKey) {
+        case 'commit':
+          _commitSha = headerValue;
+          break;
+        case 'tree':
+          _treeSha = headerValue;
+          break;
+        case 'parent':
+          _parents.add(headerValue);
+          break;
+        case 'author':
+          _author = headerValue;
+          break;
+        case 'committer':
+          _committer = headerValue;
+          break;
+        default:
+          break;
       }
 
-      message = msgLines.join('\n');
-    } else {
-      message = slr.readToEnd();
-      assert(message.endsWith('\n'));
-      final originalMessageLength = message.length;
-      message = message.trim();
-      // message should be trimmed by git, so the only diff after trim
-      // should be 1 character - the removed new line
-      assert(message.length + 1 == originalMessageLength);
+      nextLine = _slr.readNextLine();
+    }
+  }
+
+  void _consumeMergeTag() {
+    var nextLine = _slr.peekNextLine();
+    if (_mergeTagRegExp.hasMatch(nextLine)) {
+      _slr.readNextLine();
     }
 
-    final treeSha = headers['tree'].single;
-    final author = headers['author'].single;
-    final committer = headers['committer'].single;
-    final commitSha =
-        headers.containsKey('commit') ? headers['commit'].single : null;
+    nextLine = _slr.peekNextLine();
+    while (_mergeTagBodyRegExp.hasMatch(nextLine)) {
+      nextLine = _slr.readNextLine();
+    }
+  }
 
-    final parents = headers['parent'] ?? [];
+  void consumeSpaceBetweenHeaderAndMessageBlock() {
+    _slr.readNextLine();
+  }
 
-    final endSpot = slr.position;
+  void _parseMessage() {
+    String nextLine;
+    if (_isRevParse) {
+      final msgLines = <String>[];
+      nextLine = _slr.readNextLine();
 
-    final content = slr.source.substring(startSpot, endSpot);
+      const revParseMessagePrefix = '    ';
+      while (nextLine != null && nextLine.startsWith(revParseMessagePrefix)) {
+        msgLines.add(nextLine.substring(revParseMessagePrefix.length));
+        nextLine = _slr.readNextLine();
+      }
 
-    return Tuple(commitSha,
-        Commit._(treeSha, author, committer, message, content, parents));
+      _message = msgLines.join('\n');
+    } else {
+      _message = _slr.readToEnd();
+      assert(_message.endsWith('\n'));
+      final originalMessageLength = _message.length;
+      _message = _message.trim();
+      // message should be trimmed by git, so the only diff after trim
+      // should be 1 character - the removed new line
+      assert(_message.length + 1 == originalMessageLength);
+    }
   }
 }
