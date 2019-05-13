@@ -45,11 +45,11 @@ class Commit {
 }
 
 class _CommitParser {
+  final headers = <String, List<String>>{};
+
   Tuple<String, Commit> parse(StringLineReader slr, bool isRevParse) {
     assert(slr != null);
     assert(slr.position != null);
-
-    final headers = <String, List<String>>{};
 
     final startSpot = slr.position;
     var lastLine = slr.readNextLine();
